@@ -34,9 +34,11 @@
 #include <sys/types.h>
 #include <malloc.h>
 #include <omp.h>
+#include <math.h>
 //-----------------------------What to be updated - Begin
 #define MAX_STRING_LENGTH 255
-#define MAX_WORDS 1000
+#define MAX_WORDS 150
+#define MAX_THREADS 4
 //-----------------------------What to be updated - End
 
 // Global Variables
@@ -44,6 +46,20 @@ struct myKeyVal{
     char myKey[MAX_STRING_LENGTH];
     int myValue;
 };
+struct threadArg{
+    int tid;
+    int startIndex;
+    int endIndex;
+    struct myKeyVal solStruct[MAX_WORDS/MAX_THREADS];
+};
+void threadArg_Initialize(struct threadArg tempStruct){
+    for (int i = 0; i < (MAX_WORDS/MAX_THREADS); i++){
+        tempStruct.tid = i;
+        tempStruct.startIndex = floor(i*((MAX_WORDS/MAX_THREADS)));
+        tempStruct.endIndex = floor((i+1)*((MAX_WORDS/MAX_THREADS)));
+    }
+}
+
 char myBuff[MAX_WORDS][MAX_STRING_LENGTH];
 struct myKeyVal wordList [MAX_WORDS];
 
@@ -54,16 +70,43 @@ struct myKeyVal myMapFunc(char passString[]);
 struct myKeyVal myReduceFunc(int startIn, int endIn);
 void myOutputFunc(struct myKeyVal passStruct);
 
+void *myMapThread_function(void* args);
+int combineList_function(struct threadArg temp, int currIndex);
+
+
+
 // Test File
 int main(){
+    
+    // Initialize the thread arguments
+    struct threadArg myThreads[MAX_THREADS];
+    for (int i = 0; i< MAX_THREADS; i++){
+        threadArg_Initialize(myThreads[i]);
+    }
 
+    // Read file and fill array with words
     myInputFunc();
 
+    //array for threads
+    pthread_t myThread_ID [MAX_THREADS]; 
+
     // Fill array of Key Value Pairs
-    for (int i=0; i<MAX_WORDS; i++){
-        wordList[i]= myMapFunc(myBuff[i]);
+    for (int i=0; i<MAX_THREADS; i++){
+        //create thread and give function
+        pthread_create(&myThread_ID[i], NULL, myMapThread_function, &myThreads[i]);
     }
-    
+
+    for (int i=0; i<MAX_THREADS; i++){
+        //join thread
+        pthread_join(myThread_ID[i], NULL);
+    }
+
+    int currentWordList_Index = 0;
+    for (int i=0; i<MAX_THREADS; i++){
+        combineList_function(myThreads[i], currentWordList_Index);
+    }
+
+
     bool need_true = false;
     struct myKeyVal myTempStruct;
     int startIndex;
@@ -73,8 +116,9 @@ int main(){
             startIndex=i;
         }
         if (i == MAX_WORDS -1 ){
-            //call the function and send Start index and i
+            // Reduce the values
             myTempStruct = myReduceFunc(startIndex,i);
+            //Print     void the structures
             myOutputFunc(myTempStruct);
         }
         else if ((strcmp(wordList[i].myKey, wordList[i+1].myKey)==0)){
@@ -82,8 +126,9 @@ int main(){
         }
         else {
             need_true = false;
-            //call the function and send Start index and i
+            // Reduce the values
             myTempStruct = myReduceFunc(startIndex,i);
+            //Print the structures
             myOutputFunc(myTempStruct);
         }
     }
@@ -139,4 +184,27 @@ void myOutputFunc(struct myKeyVal passStruct){
     else{
         printf("%s , %d \n", passStruct.myKey, passStruct.myValue);
     }
+}
+
+
+void *myMapThread_function(void* args){
+    struct threadArg *tempArg = (struct threadArg *) args;
+    int j = 0;
+    for(int i= tempArg->startIndex; i<tempArg->endIndex; i++){
+        tempArg->solStruct[j] = myMapFunc(myBuff[i]);
+        j++;
+    }
+    return NULL;
+} 
+
+//return back current combineList index
+int combineList_function(struct threadArg temp, int currIndex){
+    for(int i=0; i<(MAX_WORDS/MAX_THREADS); i++){
+        for(int j=0; j<(MAX_STRING_LENGTH); j++){
+            wordList[currIndex].myKey[j] = temp.solStruct[i].myKey[j];
+        }
+        wordList[currIndex].myValue = temp.solStruct[i].myValue;
+        currIndex++;
+    }
+    return currIndex;
 }
